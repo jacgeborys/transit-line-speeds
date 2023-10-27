@@ -1,0 +1,66 @@
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import LineString, Point
+
+# Load the data
+shapes_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\TransitLineSpeeds\\2023_06_14\\shapes.txt"
+trips_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\TransitLineSpeeds\\2023_06_14\\trips.txt"
+
+shapes = pd.read_csv(shapes_path)
+trips = pd.read_csv(trips_path)
+
+trip_counts = trips.groupby('shape_id').size().reset_index(name='trip_count')
+
+shapes = shapes.merge(trip_counts, on='shape_id', how='left')
+
+def generate_segments(group):
+    # Make sure the group is sorted by sequence
+    group = group.sort_values(by="shape_pt_sequence")
+    
+    points = [Point(row['shape_pt_lon'], row['shape_pt_lat']) for _, row in group.iterrows()]
+    
+    segments = [LineString([points[i-1], points[i]]) for i in range(1, len(points))]
+    
+    # Add the trip counts
+    trip_counts = [group['trip_count'].iloc[0]] * len(segments)
+    
+    return segments, trip_counts
+
+segments_list = []
+trip_counts_list = []
+
+for _, group in shapes.groupby('shape_id'):
+    segments, trip_counts = generate_segments(group)
+    segments_list.extend(segments)
+    trip_counts_list.extend(trip_counts)
+
+segments_gdf = gpd.GeoDataFrame({'geometry': segments_list, 'trip_count': trip_counts_list}, crs="EPSG:4326")
+
+
+###############
+
+segments_gdf = segments_gdf.to_crs("EPSG:2180")
+
+# Buffer the segments, but keep them separate
+segments_gdf["buffered_geometry"] = segments_gdf.buffer(5)
+
+# Use spatial joins to find overlaps based on the buffered geometries
+joined = gpd.sjoin(segments_gdf.set_geometry('buffered_geometry'), segments_gdf, how="inner", op='intersects')
+
+# For each group of overlapping segments, sum the trip counts
+def aggregate_trip_counts(group):
+    return group['trip_count_right'].sum()
+
+trip_counts_aggregated = joined.groupby('index_left').apply(aggregate_trip_counts)
+
+# Assign the aggregated counts to the original dataframe
+segments_gdf['agg_trip_count'] = trip_counts_aggregated
+segments_gdf.dropna(subset=['agg_trip_count'], inplace=True)
+
+# Since overlapping segments are now represented multiple times in the dataframe, we should drop duplicates based on geometry
+segments_gdf.drop_duplicates(subset='geometry', inplace=True)
+
+# Save the result
+output_path_trip_counts = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\2023_06_14\trip_counts_per_segment.shp"
+segments_gdf[['geometry', 'agg_trip_count']].to_file(output_path_trip_counts)
+

@@ -1,0 +1,1 @@
+curl -L -o feed.zip "https://transit.land/api/v2/rest/feed_versions/0d89db3e5c3c163f47a75a8b2bae7ca0ccf2fae2/download?apikey=w1k2SJquML00fSKAqZKLCOonoHl0WxuK"

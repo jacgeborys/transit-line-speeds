@@ -1,0 +1,9 @@
+.idea/
+archive/
+_out/
+downloadGTFS.txt
+**/archive/
+**/.idea/
+**/excel/
+_live_data/
+_schedule_data/

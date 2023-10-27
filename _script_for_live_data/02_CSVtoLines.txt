@@ -1,0 +1,106 @@
+import geopandas as gpd
+import pandas as pd
+from shapely.geometry import LineString, Point
+import numpy as np
+
+# ... [SNIPPET 1: Reading CSV into GeoDataFrame]
+# Replace this with actual CSV file path
+csv_file_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_script_live_records\processed_data.csv"
+
+df = pd.read_csv(csv_file_path, parse_dates=['timestamp'])
+gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.lon, df.lat))
+
+# Sort by trip_id and timestamp
+gdf = gdf.sort_values(['trip_id', 'timestamp'])
+
+# ... [SNIPPET 2: Creating LineStrings]
+# Create LineStrings
+lines = gdf.groupby('trip_id').apply(lambda x: LineString(x.geometry.tolist())).reset_index()
+
+# ... [SNIPPET 3: Creating Segments]
+# This part remains almost the same; you just need to replace `shape_id` with `trip_id`
+def segment_line_by_speed(group):
+    segments = []
+    prev_point = None
+    prev_speed = None
+    for idx, row in group.iterrows():
+        if prev_point:
+            segments.append({
+                'trip_id': row['trip_id'],
+                'speed': prev_speed,
+                'geometry': LineString([prev_point, row['geometry']])
+            })
+        prev_point = row['geometry']
+        prev_speed = row['speed']
+    return segments
+
+segments_list = gdf.groupby('trip_id').apply(segment_line_by_speed).sum()
+segmented_lines = gpd.GeoDataFrame(segments_list, columns=['trip_id', 'speed', 'geometry'])
+segmented_lines['speed'].fillna(0, inplace=True)
+
+# Replace 'inf' and '-inf' with NaN, then replace NaN with 0
+segmented_lines['speed'].replace([np.inf, -np.inf], np.nan, inplace=True)
+segmented_lines['speed'].fillna(0, inplace=True)
+
+# Using boolean indexing to keep only the rows where speed is less than or equal to 100
+segmented_lines = segmented_lines[segmented_lines['speed'] <= 100]
+
+# Save to a shapefile
+output_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\Warszawa\2023_10_03\shapes_processed_to_lines.shp"
+segmented_lines.to_file(output_path)
+
+#############################################################
+
+import math
+
+def offset_segment_right(segment, distance=10):
+    """
+    Offset a line segment to the right by a given distance.
+    
+    Args:
+    - segment (LineString): A two-point LineString segment to offset.
+    - distance (float): The distance to offset. Default is 10.
+    
+    Returns:
+    - LineString: The offset line segment.
+    """
+    # Extract start and end points
+    start, end = segment.coords
+    
+    # Calculate azimuth
+    azimuth = math.atan2(end[1] - start[1], end[0] - start[0])
+    
+    # Calculate perpendicular direction (to the right)
+    # Subtracting 90 degrees (or pi/2 in radians) gives the perpendicular direction
+    perp_azimuth = azimuth - math.pi / 2
+    
+    # Calculate offset coordinates for start and end
+    start_offset = (
+        start[0] + distance * math.cos(perp_azimuth),
+        start[1] + distance * math.sin(perp_azimuth)
+    )
+    end_offset = (
+        end[0] + distance * math.cos(perp_azimuth),
+        end[1] + distance * math.sin(perp_azimuth)
+    )
+    
+    # Return the new offset segment
+    return LineString([start_offset, end_offset])
+
+# Define the initial CRS for the segmented_lines object
+segmented_lines.crs = "EPSG:4326"
+
+# Reproject segmented_lines to EPSG:2180
+segmented_lines_2180 = segmented_lines.to_crs(epsg=2180)
+
+# Apply the offset on the reprojected data
+segmented_lines_2180['geometry'] = segmented_lines_2180['geometry'].apply(offset_segment_right)
+
+#############################################################
+
+# Reproject back to EPSG:4326 (optional based on your needs)
+segmented_lines_offset = segmented_lines_2180.to_crs(epsg=4326)
+
+# Save to a shapefile
+output_path_offset = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\Warszawa\2023_10_03\offset_shapes_processed_to_lines.shp"
+segmented_lines_offset.to_file(output_path_offset)
