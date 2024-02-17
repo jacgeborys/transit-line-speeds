@@ -3,7 +3,7 @@ from tqdm import tqdm
 import os
 import numpy as np
 
-folder_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\TransitLineSpeeds\\_schedule_data\\2024_01_19\\"
+folder_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\TransitLineSpeeds\\_schedule_data\\Praga_2023_01_23\\"
 MAX_SPEED = 80  # Set the maximum allowable speed
 
 def parse_time(t):
@@ -36,14 +36,6 @@ def load_and_filter_data():
     shapes = pd.read_csv(os.path.join(folder_path, "shapes.txt"), dtype={'shape_id': str})
     trips = pd.read_csv(os.path.join(folder_path, "trips.txt"), dtype={'trip_id': str, 'shape_id': str})
 
-    # Debugging: Review Initial Data Load
-    print("Number of records in shapes:", len(shapes))
-    print("Number of records in trips:", len(trips))
-
-    # Debugging: Review Initial Data Load
-    print(shapes.head())
-    print(trips.head())
-
     # Load stop_times from pickle if available or from csv
     pickle_path = os.path.join(folder_path, "stop_times_processed.pkl")
     if os.path.exists(pickle_path):
@@ -62,8 +54,6 @@ def load_and_filter_data():
 
         # Save processed stop_times to pickle
         stop_times.to_pickle(pickle_path)
-
-    print("Number of records in stop_times:", len(stop_times))
 
     # Filter by time range
     range_starts = [pd.to_datetime('06:00:00').time(), pd.to_datetime('14:00:00').time()]
@@ -89,17 +79,9 @@ def load_and_filter_data():
     stop_times = stop_times[stop_times['trip_id'].isin(valid_trips)]
     trips = trips[trips['trip_id'].isin(valid_trips)]
 
-    # Debugging: Verify Valid Stops and Trips
-    print("Number of valid stops:", len(valid_stops))
-    print("Number of valid trips:", len(valid_trips))
-
     return shapes, trips, stop_times
 
 def calculate_differences(filtered_stop_times):
-
-    # Debugging: Data Types and Values Before Operations
-    print("Data types before operations:", filtered_stop_times.dtypes)
-
     filtered_stop_times['arrival_time'] = pd.to_datetime(filtered_stop_times['arrival_time'], format='%H:%M:%S')
     filtered_stop_times['departure_time'] = pd.to_datetime(filtered_stop_times['departure_time'], format='%H:%M:%S')
     filtered_stop_times.sort_values(by=['trip_id', 'arrival_time'], inplace=True)
@@ -107,9 +89,6 @@ def calculate_differences(filtered_stop_times):
     # Calculate differences in time and distance for general cases
     filtered_stop_times['time_diff'] = filtered_stop_times.groupby('trip_id')['arrival_time'].diff().dt.total_seconds()
     filtered_stop_times['dist_diff'] = filtered_stop_times.groupby('trip_id')['shape_dist_traveled'].diff()
-
-    # Debugging: Number of Records After Calculations
-    print(f"Number of records after calculating differences: {len(filtered_stop_times)}")
 
     # Handle the first segment for each trip
     filtered_stop_times['prev_departure_time'] = filtered_stop_times.groupby('trip_id')['departure_time'].shift(1)
@@ -120,9 +99,7 @@ def calculate_differences(filtered_stop_times):
 
     # Filter out any NaN values, rows where time_diff is 0, and rows with speed < 1
     filtered_stop_times = filtered_stop_times.dropna(subset=['time_diff', 'dist_diff']).loc[filtered_stop_times['time_diff'] > 0]
-
-    ############### Z M/S - *3600/1000    Z KM/S - *3600
-    filtered_stop_times['speed'] = (filtered_stop_times['dist_diff'] / filtered_stop_times['time_diff']) * 3600 / 1000  # Convert speed to km/h
+    filtered_stop_times['speed'] = (filtered_stop_times['dist_diff'] / filtered_stop_times['time_diff']) * 3600  # Convert speed to km/h
     filtered_stop_times = filtered_stop_times.loc[filtered_stop_times['speed'] >= 1]
     filtered_stop_times = filtered_stop_times[filtered_stop_times['speed'] <= MAX_SPEED]
 

@@ -1,0 +1,55 @@
+import geopandas as gpd
+import pandas as pd
+from tqdm import tqdm  # Import tqdm
+
+# Load the GeoDataFrame
+segments_gdf = gpd.read_file(r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\2024_01_19\individual_segments_2180.shp")
+
+# Ensure CRS is suitable for spatial operations
+# segments_gdf = segments_gdf.to_crs(epsg=2180)
+
+# Create spatial index for efficient querying
+spatial_index = segments_gdf.sindex
+
+# Empty list for the results
+results = []
+
+# Use tqdm to wrap the iteration and provide a progress bar
+for index, segment in tqdm(segments_gdf.iterrows(), total=segments_gdf.shape[0], desc="Processing segments"):
+    # Buffer the segment slightly to find truly overlapping segments
+    buffered_segment = segment.geometry.buffer(20)  # Adjust the buffer size if necessary
+    
+    # Potential matches index
+    possible_matches_index = list(spatial_index.intersection(buffered_segment.bounds))
+    possible_matches = segments_gdf.iloc[possible_matches_index]
+    
+    # Filter only truly overlapping segments
+    precise_matches = possible_matches[possible_matches.intersects(buffered_segment)]
+    
+    # Further filter by vehicle type to aggregate counts correctly
+    precise_matches = precise_matches[precise_matches['vehicle'] == segment['vehicle']]
+    
+    # If there are precise matches, sum their trip counts
+    if not precise_matches.empty:
+        total_trip_count = precise_matches['trip_count'].sum()
+        
+        # Create a new segment record with summed trip count
+        new_segment = {
+            'geometry': segment.geometry,  # Keep original geometry
+            'vehicle': segment['vehicle'],
+            'total_trip_count': total_trip_count
+        }
+        
+        results.append(new_segment)
+
+# Convert results to GeoDataFrame
+aggregated_gdf = gpd.GeoDataFrame(results, geometry='geometry', crs=segments_gdf.crs)
+
+# Dissolve segments by vehicle type to ensure one line per street
+final_gdf = aggregated_gdf.dissolve(by='vehicle', aggfunc='sum')
+
+# Save to a shapefile
+output_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\2024_01_19\streets_aggregated.shp"
+final_gdf.to_file(output_path)
+
+print("Aggregated streets saved successfully.")

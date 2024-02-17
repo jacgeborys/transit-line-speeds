@@ -1,0 +1,40 @@
+import geopandas as gpd
+import pandas as pd
+
+# Load the offset lines
+segmented_lines_offset = gpd.read_file(r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\Oslo_2024_01_24\offset_shapes_processed_to_lines.shp")
+
+# Ensure the 'speed' column is numeric
+segmented_lines_offset['speed'] = pd.to_numeric(segmented_lines_offset['speed'], errors='coerce')
+
+# Perform a spatial join to find overlapping segments
+joined = gpd.sjoin(segmented_lines_offset, segmented_lines_offset, how='inner', op='intersects')
+
+# Debug: Print column types and check if 'speed_right' exists and is numeric
+print(joined.dtypes)
+print('speed_right' in joined.columns)
+
+# Continue if 'speed_right' exists and is numeric
+if 'speed_right' in joined.columns:
+    # Filter rows where the segments are the same
+    joined = joined[joined.index != joined['index_right']]
+    
+    # For each group of overlapping segments, calculate the average speed
+    averaged_speeds = joined.groupby(joined.index)['speed_right'].mean()
+    
+    # Merge averaged speeds with the original data
+    merged = segmented_lines_offset.merge(averaged_speeds, how='left', left_index=True, right_index=True)
+    
+    # Fill NaN values with the original speed
+    merged['speed_right'].fillna(merged['speed'], inplace=True)
+    
+    # Adjust the columns 
+    merged.drop(columns='speed', inplace=True)
+    merged.rename(columns={'speed_right': 'avg_speed'}, inplace=True)
+    
+    # Drop duplicates based on geometry
+    merged.drop_duplicates(subset='geometry', inplace=True)
+    
+    # Save the result
+    output_path_avg_speeds = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\Oslo_2024_01_24\real_overlaps_avg_speed_per_segment.shp"
+    merged.to_file(output_path_avg_speeds)

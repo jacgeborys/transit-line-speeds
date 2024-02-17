@@ -52,7 +52,7 @@ segmented_lines = gpd.GeoDataFrame(segments_list, columns=['shape_id', 'speed', 
 segmented_lines.columns = ['id', 'speed', 'geometry']
 
 # Save to a shapefile
-output_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\Amsterdam\2023_06_13\shapes_processed_to_lines.shp"
+output_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\2024_01_19\shapes_processed_to_lines.shp"
 segmented_lines.to_file(output_path)
 
 #############################################################
@@ -108,6 +108,6 @@ segmented_lines_2180['geometry'] = segmented_lines_2180['geometry'].apply(offset
 segmented_lines_offset = segmented_lines_2180.to_crs(epsg=4326)
 
 # Save to a shapefile
-output_path_offset = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\Amsterdam\2023_06_13\offset_shapes_processed_to_lines.shp"
+output_path_offset = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\2024_01_19\offset_shapes_processed_to_lines.shp"
 segmented_lines_offset.to_file(output_path_offset)
 
