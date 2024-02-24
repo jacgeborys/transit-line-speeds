@@ -1,53 +1,41 @@
 import geopandas as gpd
-import pandas as pd
-from tqdm import tqdm  # Import tqdm
+from tqdm import tqdm
 
 # Load the GeoDataFrame
 segments_gdf = gpd.read_file(
     r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\2024_01_19\individual_segments_2180.shp")
 
-# Create spatial index for efficient querying
+# Spatial index for efficiency
 spatial_index = segments_gdf.sindex
 
-# Empty list for the results
-results = []
+# Initialize a list to keep track of indices to remove
+indices_to_remove = set()
 
-# Use tqdm to wrap the iteration and provide a progress bar
-for index, segment in tqdm(segments_gdf.iterrows(), total=segments_gdf.shape[0], desc="Processing segments"):
-    # Buffer the segment slightly to find truly overlapping segments
-    buffered_segment = segment.geometry.buffer(10)  # Adjust the buffer size if necessary
+for index, segment in tqdm(segments_gdf.iterrows(), total=segments_gdf.shape[0], desc="Checking segments"):
+    if index in indices_to_remove:
+        # If the segment is already marked for removal, skip it
+        continue
 
-    # Potential matches index
-    possible_matches_index = list(spatial_index.intersection(buffered_segment.bounds))
-    possible_matches = segments_gdf.iloc[possible_matches_index]
+    # Create a 30m buffer around the segment
+    buffer = segment.geometry.buffer(30)
 
-    # Filter only truly overlapping segments
-    precise_matches = possible_matches[possible_matches.intersects(buffered_segment)]
+    # Find potential segments within the buffer bounds
+    possible_matches_index = list(spatial_index.intersection(buffer.bounds))
+    for idx in possible_matches_index:
+        # Skip the segment itself
+        if idx == index:
+            continue
 
-    # Further filter by vehicle type to aggregate counts correctly
-    precise_matches = precise_matches[precise_matches['vehicle'] == segment['vehicle']]
+        # If another segment is fully within the buffer, mark it for removal
+        if segments_gdf.iloc[idx].geometry.within(buffer):
+            indices_to_remove.add(idx)
 
-    # If there are precise matches, sum their trip counts
-    if not precise_matches.empty:
-        total_trip_count = precise_matches['trip_count'].sum()
-
-        # Create a new segment record with summed trip count
-        new_segment = {
-            'geometry': segment.geometry,  # Keep original geometry
-            'vehicle': segment['vehicle'],
-            'total_trip_count': total_trip_count
-        }
-
-        results.append(new_segment)
-
-# Convert results to GeoDataFrame
-aggregated_gdf = gpd.GeoDataFrame(results, geometry='geometry', crs=segments_gdf.crs)
-
-# Here, instead of dissolving by 'vehicle', each segment is preserved separately.
-# If you need unique per-street aggregations, further processing is needed.
+# Exclude the segments marked for removal
+indices_to_keep = [idx for idx in range(len(segments_gdf)) if idx not in indices_to_remove]
+unique_segments_gdf = segments_gdf.iloc[indices_to_keep]
 
 # Save to a shapefile
-output_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\2024_01_19\individual_streets_aggregated.shp"
-aggregated_gdf.to_file(output_path)
+output_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\2024_01_19\unique_segments.shp"
+unique_segments_gdf.to_file(output_path)
 
-print("Aggregated streets saved successfully.")
+print("Unique segments saved successfully.")
