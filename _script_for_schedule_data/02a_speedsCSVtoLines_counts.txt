@@ -50,7 +50,7 @@ else:
     segments_gdf.crs = "EPSG:4326"
     
     # Save to a shapefile
-    output_path = "C:/Users/Asus/OneDrive/Pulpit/Rozne/QGIS/TransitLineSpeeds/_schedule_data/2024_01_19/individual_segments.shp"
+    output_path = "C:/Users/Asus/OneDrive/Pulpit/Rozne/QGIS/TransitLineSpeeds/_schedule_data/2024_03_08/individual_segments.shp"
     segments_gdf.to_file(output_path)
     
     print("Individual segments shapefile saved successfully.")

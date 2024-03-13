@@ -3,9 +3,9 @@ from tqdm import tqdm
 import os
 import re
 
-folder_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\TransitLineSpeeds\\_schedule_data\\2024_01_19\\"
+folder_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\TransitLineSpeeds\\_schedule_data\\2024_03_08\\"
 MAX_SPEED = 80  # Maximum speed in km/h
-DATE_FILTER = "RA240119"  # Date to filter by
+DATE_FILTER = "RA240308"  # Date to filter by
 
 def parse_time(t):
     t_split = t.split(':')
