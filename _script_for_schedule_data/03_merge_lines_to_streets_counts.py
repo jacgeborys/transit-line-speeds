@@ -12,12 +12,14 @@ def split_linestring(linestring, segment_length):
 
 # Load and reproject the GeoDataFrame
 segments_gdf = gpd.read_file(
-    r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\2024_03_08\individual_segments.shp")
+    r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\NY_2024_03_20\individual_segments.shp")
 segments_gdf = segments_gdf.to_crs("EPSG:2180")
 
 # Initialize 'trip_sum' and filter segments
 segments_gdf['trip_sum'] = segments_gdf['trip_count']
-filtered_gdf = segments_gdf[(segments_gdf['length'] > 10) & (segments_gdf['vehicle'] != 'Unknown')].copy()
+
+# Drop rows where 'trip_sum' is 0
+filtered_gdf = segments_gdf[(segments_gdf['trip_sum'] > 0) & (segments_gdf['length'] > 10) & (segments_gdf['vehicle'] != 'Unknown')].copy()
 
 # Split segments into approximately 10m long segments
 split_segments = []
@@ -36,7 +38,7 @@ split_gdf = gpd.GeoDataFrame(split_segments, geometry='geometry', crs="EPSG:2180
 # Group by 'vehicle' type
 grouped = split_gdf.groupby('vehicle')
 
-output_dir = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\2024_03_08"
+output_dir = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\NY_2024_03_20"
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
@@ -67,8 +69,7 @@ for vehicle, df in grouped:
 
             if direction_difference <= 10:
                 processed_shape_ids[index].add(shorter_segment['shape_id'])
-                trip_sum_updates[index] = trip_sum_updates.get(index, longer_segment['trip_sum']) + shorter_segment[
-                    'trip_sum']
+                trip_sum_updates[index] = trip_sum_updates.get(index, longer_segment['trip_sum']) + shorter_segment['trip_sum']
                 trip_sum_updates[idx] = 0  # Mark the shorter segment for removal
 
     for idx, sum_val in trip_sum_updates.items():

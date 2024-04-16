@@ -1,43 +1,39 @@
 import pandas as pd
-from datetime import timedelta, datetime
+from datetime import datetime, timedelta
 
-# Read the frequencies file
-df = pd.read_csv(r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\2024_03_08\frequencies.txt")
+# Load the frequencies data
+df = pd.read_csv(r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\Warszawa_2024_03_20\frequencies.txt")
 
-# Function to adjust "24:xx:xx" times and convert to datetime
+# Adjust time to handle "24:xx:xx", "25:xx:xx" formats and beyond
 def adjust_time(time_str):
-    if time_str.startswith("24:"):
-        adjusted_str = "00" + time_str[2:]
-        time_obj = datetime.strptime(adjusted_str, '%H:%M:%S') + timedelta(days=1)  # Adjust for "next day"
-    elif time_str.startswith("25:"):
-        adjusted_str = "01" + time_str[2:]
-        time_obj = datetime.strptime(adjusted_str, '%H:%M:%S')
-        time_obj += timedelta(days=1)  # Adding a day to account for the "next day"
-    elif time_str.startswith("26:"):
-        adjusted_str = "01" + time_str[2:]
-        time_obj = datetime.strptime(adjusted_str, '%H:%M:%S')
-        time_obj += timedelta(days=1)  # Adding a day to account for the "next day"
-    else:
-        time_obj = datetime.strptime(time_str, '%H:%M:%S')
+    # Handle times that go beyond 23:59:59
+    parts = time_str.split(':')
+    hours, minutes, seconds = int(parts[0]) % 24, int(parts[1]), int(parts[2])
+    new_time_str = f"{hours:02}:{minutes:02}:{seconds:02}"
+    # Adding days if original hour was >= 24 to correctly calculate timedelta later
+    days_add = int(parts[0]) // 24
+    time_obj = datetime.strptime(new_time_str, '%H:%M:%S') + timedelta(days=days_add)
     return time_obj
 
-# Function to compute trips considering only hours between 6 AM and 10 PM
+# Calculate trips within specified hours (6 AM to 10 PM)
 def calculate_trips(row):
-    start_time = max(row['start_time'], row['start_time'].replace(hour=6, minute=0, second=0))
-    end_time = min(row['end_time'], row['start_time'].replace(hour=22, minute=0, second=0))
+    morning_bound = row['start_time'].replace(hour=6, minute=0, second=0, microsecond=0)
+    evening_bound = row['start_time'].replace(hour=22, minute=0, second=0, microsecond=0)
+    start_time = max(row['start_time'], morning_bound)
+    end_time = min(row['end_time'], evening_bound)
     if start_time >= end_time:
-        return 0  # No trips if start time is after the end of the considered interval
-    duration = (end_time - start_time).total_seconds() / 3600  # Duration in hours
-    return round(duration * 3600 / row['headway_secs'])
+        return 0
+    duration_seconds = (end_time - start_time).total_seconds()
+    return max(0, round(duration_seconds / row['headway_secs']))
 
-# Apply adjustment to start and end times
+# Apply time adjustments
 df['start_time'] = df['start_time'].apply(adjust_time)
 df['end_time'] = df['end_time'].apply(adjust_time)
 
-# Calculate trips considering only the specified hours
+# Calculate trips for each entry
 df['trips'] = df.apply(calculate_trips, axis=1)
 
-# Aggregate total trips per day for M1 and M2
-trips_per_day = df.groupby(df['trip_id'].str[:2])['trips'].sum().reset_index()
+# Group by the full trip_id before any time or additional identifier
+trips_per_day_full = df.groupby('trip_id')['trips'].sum().reset_index(name='total_trips')
 
-print(trips_per_day)
+print(trips_per_day_full)

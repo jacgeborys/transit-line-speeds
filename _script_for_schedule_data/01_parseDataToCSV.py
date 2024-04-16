@@ -3,7 +3,7 @@ from tqdm import tqdm
 import os
 import numpy as np
 
-folder_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\TransitLineSpeeds\\_schedule_data\\Praga_2023_01_23\\"
+folder_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\TransitLineSpeeds\\_schedule_data\\Warszawa_2024_03_27\\"
 MAX_SPEED = 80  # Set the maximum allowable speed
 
 def parse_time(t):

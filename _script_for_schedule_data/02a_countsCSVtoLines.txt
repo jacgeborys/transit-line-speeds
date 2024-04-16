@@ -1,0 +1,64 @@
+import geopandas as gpd
+import pandas as pd
+from shapely.geometry import LineString, Point
+import numpy as np
+
+# Function to calculate direction of a line segment
+def calculate_direction(line):
+    if isinstance(line, LineString) and len(line.coords) > 1:
+        start, end = line.coords[0], line.coords[-1]
+        angle = np.degrees(np.arctan2(end[1] - start[1], end[0] - start[0]))
+        return angle % 360  # Normalize angle to be within [0, 360] degrees
+    return None
+
+# Assuming iface.activeLayer() gets the active layer from QGIS
+layer = iface.activeLayer()
+
+if not layer or not layer.type() == QgsMapLayer.VectorLayer:
+    print("No active vector layer selected. Please select a vector layer.")
+else:
+    # Extracting attributes into a list of dictionaries
+    data_list = [feat.attributes() for feat in layer.getFeatures()]
+    column_names = [field.name() for field in layer.fields()]
+    
+    # Creating DataFrame from attributes
+    df = pd.DataFrame(data_list, columns=column_names)
+    
+    # Assuming your data's coordinates are in longitude and latitude
+    gdf = gpd.GeoDataFrame(df, geometry=[Point(xy) for xy in zip(df.shape_pt_lon, df.shape_pt_lat)])
+    
+    # Set the initial CRS to WGS84 (EPSG:4326) if your coordinates are in lon/lat
+    gdf.crs = "EPSG:4326"
+    
+    # Reproject GeoDataFrame to EPSG:2180 for accurate distance calculations
+    gdf = gdf.to_crs("EPSG:2180")
+    
+    gdf_sorted = gdf.sort_values(['shape_id', 'shape_pt_sequence'])
+    
+    def create_segments(group):
+        segments = []
+        points = list(group.geometry)
+        for i in range(len(points) - 1):
+            segment = LineString([points[i], points[i + 1]])
+            length = segment.length
+            direction = calculate_direction(segment)
+            segments.append({
+                'geometry': segment,
+                'shape_id': group['shape_id'].iloc[0],
+                'trip_count': group['trip_count'].iloc[0],
+                'vehicle': group['vehicle_type'].iloc[0],
+                'length': length,
+                'direction': direction
+            })
+        return segments
+    
+    segments_list = gdf_sorted.groupby('shape_id').apply(create_segments).explode().tolist()
+    
+    segments_df = pd.DataFrame(segments_list)
+    
+    segments_gdf = gpd.GeoDataFrame(segments_df, geometry='geometry', crs="EPSG:2180")
+    
+    output_path = "C:/Users/Asus/OneDrive/Pulpit/Rozne/QGIS/TransitLineSpeeds/_schedule_data/Gdynia_2024_03_20/individual_segments.shp"
+    segments_gdf.to_file(output_path)
+    
+    print("Individual segments shapefile saved successfully.")
