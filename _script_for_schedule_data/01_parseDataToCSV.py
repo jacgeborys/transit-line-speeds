@@ -2,9 +2,11 @@ import pandas as pd
 from tqdm import tqdm
 import os
 import numpy as np
+import re
 
 folder_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\TransitLineSpeeds\\_schedule_data\\Warszawa_2024_03_27\\"
 MAX_SPEED = 80  # Set the maximum allowable speed
+DATE_FILTER = "RA240327"  # Date to filter by
 
 def parse_time(t):
     """
@@ -31,10 +33,25 @@ def is_within_time_range(t, start, end):
     else:  # Wraps around midnight.
         return start <= t or t <= end
 
+def vehicle_type(shape_id):
+    if re.search(r'/\d{1,2}/', shape_id):
+        return 'Tram'
+    elif re.search(r'/\d{3}/', shape_id):
+        return 'Bus'
+    elif re.search(r'/S\d{1,2}/', shape_id):
+        return 'Train'
+    return 'Unknown'
+
 def load_and_filter_data():
     # Load dataframes
     shapes = pd.read_csv(os.path.join(folder_path, "shapes.txt"), dtype={'shape_id': str})
     trips = pd.read_csv(os.path.join(folder_path, "trips.txt"), dtype={'trip_id': str, 'shape_id': str})
+
+    # Add vehicle type to trips data
+    trips['vehicle'] = trips['shape_id'].apply(vehicle_type)
+
+    shapes = shapes[shapes['shape_id'].str.contains(DATE_FILTER)]
+    trips = trips[trips['shape_id'].str.contains(DATE_FILTER)]
 
     # Load stop_times from pickle if available or from csv
     pickle_path = os.path.join(folder_path, "stop_times_processed.pkl")
@@ -106,39 +123,44 @@ def calculate_differences(filtered_stop_times):
     print(f"Number of records after calculating differences: {filtered_stop_times.shape[0]}")
     return filtered_stop_times
 
-def merge_and_save(shapes, trips, filtered_stop_times):
-    # Select necessary columns and merge dataframes
-    filtered_stop_times = filtered_stop_times[
-        ['trip_id', 'arrival_time', 'stop_id', 'shape_dist_traveled', 'time_diff', 'dist_diff', 'speed']]
+def merge_and_save(shapes, trips, stop_times):
+    # Ensure vehicle type is determined before merging
+    trips['vehicle'] = trips['shape_id'].apply(vehicle_type)
 
-    # Merge with trips to get shape_id
-    filtered_stop_times = pd.merge(filtered_stop_times, trips[['trip_id', 'shape_id']], on='trip_id', how='inner')
+    # Merge stop_times with trips to get shape_id and vehicle type
+    stop_times = pd.merge(stop_times, trips[['trip_id', 'shape_id', 'vehicle']], on='trip_id', how='inner')
 
-    # Average speed for each shape_id and shape_dist_traveled
-    average_speed_shape = filtered_stop_times.groupby(['shape_id', 'shape_dist_traveled'])['speed'].mean().reset_index()
+    # Calculate average speed for each shape_id, shape_dist_traveled, and vehicle type
+    average_speed_shape = stop_times.groupby(['shape_id', 'shape_dist_traveled', 'vehicle'])['speed'].mean().reset_index()
 
-    # Merge shapes with average_speed_shape to get the speed information
-    shapes = pd.merge(shapes, average_speed_shape, on=['shape_id', 'shape_dist_traveled'], how='left')
+    # Ensure the shapes DataFrame has a vehicle column for correct merging
+    # Merge trips to shapes to carry over the vehicle column
+    shapes = pd.merge(shapes, trips[['shape_id', 'vehicle']].drop_duplicates(), on='shape_id', how='left')
+
+    # Merge shapes with average_speed_shape to get the speed information and vehicle type
+    shapes = pd.merge(shapes, average_speed_shape, on=['shape_id', 'shape_dist_traveled', 'vehicle'], how='left')
 
     # Backfill the speeds within each shape_id group
     shapes['speed'] = shapes.groupby('shape_id')['speed'].fillna(method='bfill')
 
     # Removing rows where speed is null or less than 1 km/h
-    shapes = shapes.dropna(subset=['speed'])  # <-- New line to remove rows with null speed
-    shapes = shapes[~(shapes['speed'] < 1)]
+    shapes = shapes.dropna(subset=['speed'])
+    shapes = shapes[shapes['speed'] >= 1]
 
     # Save the result
-    shapes.to_csv(os.path.join(folder_path, "shapes_processed.csv"), index=False)
+    output_path = os.path.join(folder_path, "shapes_processed.csv")
+    shapes.to_csv(output_path, index=False)
 
+    # Print summary information
     unique_shapes_before_merge = shapes['shape_id'].nunique()
     unique_shapes_with_speeds = shapes.dropna(subset=['speed'])['shape_id'].nunique()
     print(f"Number of unique shape_ids before merging: {unique_shapes_before_merge}")
     print(f"Number of unique shape_ids with speeds after merging: {unique_shapes_with_speeds}")
 
 def main():
-    shapes, trips, filtered_stop_times = load_and_filter_data()
-    filtered_stop_times = calculate_differences(filtered_stop_times)
-    merge_and_save(shapes, trips, filtered_stop_times)
+    shapes, trips, stop_times = load_and_filter_data()
+    stop_times = calculate_differences(stop_times)
+    merge_and_save(shapes, trips, stop_times)
 
 if __name__ == "__main__":
     main()
