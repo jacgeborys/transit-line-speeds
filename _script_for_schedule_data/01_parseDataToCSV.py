@@ -4,9 +4,9 @@ import os
 import numpy as np
 import re
 
-folder_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\TransitLineSpeeds\\_schedule_data\\Warszawa_2024_03_27\\"
+folder_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\TransitLineSpeeds\\_schedule_data\\Warszawa_2024_11_06\\"
 MAX_SPEED = 80  # Set the maximum allowable speed
-DATE_FILTER = "RA240327"  # Date to filter by
+DATE_FILTER = "RA241030"  # Date to filter by
 
 def parse_time(t):
     """

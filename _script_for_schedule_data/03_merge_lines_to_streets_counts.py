@@ -12,7 +12,7 @@ def split_linestring(linestring, segment_length):
 
 # Load and reproject the GeoDataFrame
 segments_gdf = gpd.read_file(
-    r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\NY_2024_03_20\individual_segments.shp")
+    r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\Warszawa_2024_03_27\individual_segments.shp")
 segments_gdf = segments_gdf.to_crs("EPSG:2180")
 
 # Initialize 'trip_sum' and filter segments
@@ -38,7 +38,7 @@ split_gdf = gpd.GeoDataFrame(split_segments, geometry='geometry', crs="EPSG:2180
 # Group by 'vehicle' type
 grouped = split_gdf.groupby('vehicle')
 
-output_dir = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\NY_2024_03_20"
+output_dir = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\Warszawa_2024_03_27"
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 

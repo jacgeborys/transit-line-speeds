@@ -7,3 +7,4 @@ downloadGTFS.txt
 **/excel/
 _live_data/
 _schedule_data/
+**/*.pkl
