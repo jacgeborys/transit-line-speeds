@@ -5,7 +5,7 @@ import numpy as np
 import math
 
 # Set the folder path for ease of access
-folder_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\Warszawa_2024_11_04\\"
+folder_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\Warszawa_2024_11_10\\"
 
 def calculate_direction(line):
     """Calculate the azimuth of the line segment (in degrees)."""

@@ -4,9 +4,8 @@ import os
 import numpy as np
 import re
 
-folder_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\TransitLineSpeeds\\_schedule_data\\Warszawa_2024_11_06\\"
+folder_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\TransitLineSpeeds\\_schedule_data\\Warszawa_2024_11_10\\"
 MAX_SPEED = 80  # Set the maximum allowable speed
-DATE_FILTER = "RA241030"  # Date to filter by
 
 def parse_time(t):
     """
@@ -33,25 +32,31 @@ def is_within_time_range(t, start, end):
     else:  # Wraps around midnight.
         return start <= t or t <= end
 
-def vehicle_type(shape_id):
-    if re.search(r'/\d{1,2}/', shape_id):
-        return 'Tram'
-    elif re.search(r'/\d{3}/', shape_id):
-        return 'Bus'
-    elif re.search(r'/S\d{1,2}/', shape_id):
+def vehicle_type(route_id):
+    """
+    Determines vehicle type based on route_id pattern:
+    - 1-2 digits: Tram
+    - 3 digits: Bus
+    - Starts with S or R: Train
+    """
+    route_id = str(route_id).strip()
+    
+    if route_id.isdigit():
+        if len(route_id) <= 2:
+            return 'Tram'
+        elif len(route_id) == 3:
+            return 'Bus'
+    elif route_id.startswith(('S', 'R')):
         return 'Train'
-    return 'Unknown'
+    return 'Bus'  # Default to Bus for other cases like 'E-1'
 
 def load_and_filter_data():
     # Load dataframes
-    shapes = pd.read_csv(os.path.join(folder_path, "shapes.txt"), dtype={'shape_id': str})
-    trips = pd.read_csv(os.path.join(folder_path, "trips.txt"), dtype={'trip_id': str, 'shape_id': str})
+    shapes = pd.read_csv(os.path.join(folder_path, "shapes.txt"))
+    trips = pd.read_csv(os.path.join(folder_path, "trips.txt"))
 
-    # Add vehicle type to trips data
-    trips['vehicle'] = trips['shape_id'].apply(vehicle_type)
-
-    shapes = shapes[shapes['shape_id'].str.contains(DATE_FILTER)]
-    trips = trips[trips['shape_id'].str.contains(DATE_FILTER)]
+    # Add vehicle type based on route_id instead of shape_id
+    trips['vehicle'] = trips['route_id'].apply(vehicle_type)
 
     # Load stop_times from pickle if available or from csv
     pickle_path = os.path.join(folder_path, "stop_times_processed.pkl")
@@ -125,37 +130,65 @@ def calculate_differences(filtered_stop_times):
 
 def merge_and_save(shapes, trips, stop_times):
     # Ensure vehicle type is determined before merging
-    trips['vehicle'] = trips['shape_id'].apply(vehicle_type)
+    trips['vehicle'] = trips['route_id'].apply(vehicle_type)
 
     # Merge stop_times with trips to get shape_id and vehicle type
     stop_times = pd.merge(stop_times, trips[['trip_id', 'shape_id', 'vehicle']], on='trip_id', how='inner')
 
-    # Calculate average speed for each shape_id, shape_dist_traveled, and vehicle type
+    # Calculate average speed for each shape_id and shape_dist_traveled
     average_speed_shape = stop_times.groupby(['shape_id', 'shape_dist_traveled', 'vehicle'])['speed'].mean().reset_index()
+    print("\nAverage speeds per shape_id and distance:")
+    print(average_speed_shape.head())
 
-    # Ensure the shapes DataFrame has a vehicle column for correct merging
-    # Merge trips to shapes to carry over the vehicle column
-    shapes = pd.merge(shapes, trips[['shape_id', 'vehicle']].drop_duplicates(), on='shape_id', how='left')
+    # Create a mapping of shape_id to vehicle type
+    vehicle_mapping = stop_times[['shape_id', 'vehicle']].drop_duplicates()
+    
+    # First, merge shapes with vehicle type
+    shapes = pd.merge(shapes, vehicle_mapping, on='shape_id', how='left')
+    
+    # Then assign speeds to points based on their position in the sequence
+    shapes_with_speeds = []
+    
+    for shape_id, group in shapes.groupby('shape_id'):
+        shape_speeds = average_speed_shape[average_speed_shape['shape_id'] == shape_id]
+        if not shape_speeds.empty:
+            # Sort by sequence
+            group = group.sort_values('shape_pt_sequence')
+            
+            for idx, row in group.iterrows():
+                # Find the closest shape_dist_traveled value
+                if pd.isna(row['shape_dist_traveled']):
+                    # Estimate position based on sequence number
+                    position = row['shape_pt_sequence'] / group['shape_pt_sequence'].max()
+                    max_dist = shape_speeds['shape_dist_traveled'].max()
+                    estimated_dist = position * max_dist
+                    
+                    # Find the closest speed measurement
+                    closest_idx = (shape_speeds['shape_dist_traveled'] - estimated_dist).abs().idxmin()
+                    row['speed'] = shape_speeds.loc[closest_idx, 'speed']
+                else:
+                    # Use exact distance if available
+                    closest_idx = (shape_speeds['shape_dist_traveled'] - row['shape_dist_traveled']).abs().idxmin()
+                    row['speed'] = shape_speeds.loc[closest_idx, 'speed']
+                
+                shapes_with_speeds.append(row)
+    
+    shapes = pd.DataFrame(shapes_with_speeds)
 
-    # Merge shapes with average_speed_shape to get the speed information and vehicle type
-    shapes = pd.merge(shapes, average_speed_shape, on=['shape_id', 'shape_dist_traveled', 'vehicle'], how='left')
-
-    # Backfill the speeds within each shape_id group
-    shapes['speed'] = shapes.groupby('shape_id')['speed'].fillna(method='bfill')
-
-    # Removing rows where speed is null or less than 1 km/h
+    # Filter out invalid speeds
     shapes = shapes.dropna(subset=['speed'])
     shapes = shapes[shapes['speed'] >= 1]
 
-    # Save the result
+    # Save result
     output_path = os.path.join(folder_path, "shapes_processed.csv")
     shapes.to_csv(output_path, index=False)
 
-    # Print summary information
-    unique_shapes_before_merge = shapes['shape_id'].nunique()
-    unique_shapes_with_speeds = shapes.dropna(subset=['speed'])['shape_id'].nunique()
-    print(f"Number of unique shape_ids before merging: {unique_shapes_before_merge}")
-    print(f"Number of unique shape_ids with speeds after merging: {unique_shapes_with_speeds}")
+    # Print summary
+    print("\nFinal Summary:")
+    print(f"Number of unique shape_ids: {shapes['shape_id'].nunique()}")
+    print(f"Number of rows with valid speeds: {len(shapes)}")
+    if len(shapes) > 0:
+        print(f"Speed range: {shapes['speed'].min():.2f} to {shapes['speed'].max():.2f}")
 
 def main():
     shapes, trips, stop_times = load_and_filter_data()
