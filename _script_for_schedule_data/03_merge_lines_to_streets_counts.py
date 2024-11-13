@@ -2,6 +2,12 @@ import geopandas as gpd
 from tqdm import tqdm
 import os
 from shapely.geometry import LineString, MultiLineString
+import numpy as np
+
+# Define input and output directories
+folder_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\TransitLineSpeeds\\_schedule_data\\Warszawa_2024_11_10\\"
+input_dir = folder_path
+output_dir = folder_path
 
 def split_linestring(linestring, segment_length):
     num_segments = int(round(linestring.length / segment_length))
@@ -10,73 +16,98 @@ def split_linestring(linestring, segment_length):
     points = [linestring.interpolate(float(n) / num_segments, normalized=True) for n in range(num_segments + 1)]
     return [LineString([points[n], points[n + 1]]) for n in range(num_segments)]
 
-# Load and reproject the GeoDataFrame
-segments_gdf = gpd.read_file(
-    r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\Warszawa_2024_03_27\individual_segments.shp")
-segments_gdf = segments_gdf.to_crs("EPSG:2180")
-
-# Initialize 'trip_sum' and filter segments
-segments_gdf['trip_sum'] = segments_gdf['trip_count']
-
-# Drop rows where 'trip_sum' is 0
-filtered_gdf = segments_gdf[(segments_gdf['trip_sum'] > 0) & (segments_gdf['length'] > 10) & (segments_gdf['vehicle'] != 'Unknown')].copy()
-
-# Split segments into approximately 10m long segments
-split_segments = []
-for _, row in filtered_gdf.iterrows():
-    if row.geometry.length > 10:
-        for segment in split_linestring(row.geometry, 10):
-            row_copy = row.copy()
-            row_copy.geometry = segment
-            row_copy['length'] = segment.length
-            split_segments.append(row_copy)
-    else:
-        split_segments.append(row)
-
-split_gdf = gpd.GeoDataFrame(split_segments, geometry='geometry', crs="EPSG:2180")
-
-# Group by 'vehicle' type
-grouped = split_gdf.groupby('vehicle')
-
-output_dir = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\TransitLineSpeeds\_schedule_data\Warszawa_2024_03_27"
-if not os.path.exists(output_dir):
-    os.makedirs(output_dir)
-
-for vehicle, df in grouped:
+def process_vehicle_segments(df, batch_size=10000):
+    """Process segments in batches for better performance"""
+    df = df.copy()
     df.sort_values(by='length', ascending=False, inplace=True)
     df.reset_index(drop=True, inplace=True)
     spatial_index = df.sindex
 
-    trip_sum_updates = {}
-    processed_shape_ids = {}  # Keep track of processed shape_ids for each longer segment
+    results = []
+    processed_indices = set()  # Track processed indices instead of shape_ids
 
-    for index, longer_segment in tqdm(df.iterrows(), total=df.shape[0], desc=f"Processing {vehicle} segments"):
-        if index in processed_shape_ids:  # Skip if already processed
-            continue
+    for start_idx in tqdm(range(0, len(df), batch_size), desc="Processing batches"):
+        batch = df.iloc[start_idx:min(start_idx + batch_size, len(df))]
+        
+        for idx, longer_segment in batch.iterrows():
+            if idx in processed_indices:
+                continue
 
-        buffer = longer_segment.geometry.buffer(4)
-        possible_matches_index = list(spatial_index.intersection(buffer.bounds))
-        processed_shape_ids[index] = {longer_segment['shape_id']}  # Initialize with its own shape_id
+            buffer = longer_segment.geometry.buffer(4)
+            possible_matches_index = list(spatial_index.intersection(buffer.bounds))
+            
+            trip_sum = longer_segment['trip_count']
+            matched_indices = {idx}
 
-        for idx in possible_matches_index:
-            if idx == index or df.at[idx, 'trip_sum'] == 0 or df.at[idx, 'shape_id'] in processed_shape_ids[index]:
-                continue  # Skip self, processed, or same shape_id segments
+            for match_idx in possible_matches_index:
+                if match_idx == idx or match_idx in processed_indices:
+                    continue
 
-            shorter_segment = df.iloc[idx]
-            direction_difference = abs(shorter_segment['direction'] - longer_segment['direction']) % 360
-            if direction_difference > 180:
-                direction_difference = 360 - direction_difference
+                shorter_segment = df.iloc[match_idx]
+                
+                direction_difference = abs(shorter_segment['direction'] - longer_segment['direction']) % 360
+                if direction_difference > 180:
+                    direction_difference = 360 - direction_difference
 
-            if direction_difference <= 10:
-                processed_shape_ids[index].add(shorter_segment['shape_id'])
-                trip_sum_updates[index] = trip_sum_updates.get(index, longer_segment['trip_sum']) + shorter_segment['trip_sum']
-                trip_sum_updates[idx] = 0  # Mark the shorter segment for removal
+                if direction_difference <= 10:
+                    trip_sum += shorter_segment['trip_count']
+                    matched_indices.add(match_idx)
 
-    for idx, sum_val in trip_sum_updates.items():
-        if idx in df.index:
-            df.at[idx, 'trip_sum'] = sum_val
+            if trip_sum > 0:
+                longer_segment = longer_segment.copy()
+                longer_segment['trip_sum'] = trip_sum
+                results.append(longer_segment)
+            
+            processed_indices.update(matched_indices)
 
-    df = df[df['trip_sum'] > 0]
-    df.to_file(os.path.join(output_dir, f'aggregated_segments_{vehicle}.shp'))
+    return gpd.GeoDataFrame(results, geometry='geometry', crs=df.crs)
+
+def calculate_direction(line):
+    """Calculate direction of a line segment in degrees"""
+    if isinstance(line, LineString) and len(line.coords) > 1:
+        start, end = line.coords[0], line.coords[-1]
+        angle = np.degrees(np.arctan2(end[1] - start[1], end[0] - start[0]))
+        return angle % 360  # Normalize angle to be within [0, 360] degrees
+    return None
+
+def main():
+    # Load and reproject the GeoDataFrame
+    segments_gdf = gpd.read_file(os.path.join(input_dir, "individual_segments.shp"))
+    segments_gdf = segments_gdf.to_crs("EPSG:2180")
+
+    # Filter segments
+    filtered_gdf = segments_gdf[
+        (segments_gdf['trip_count'] > 0) & 
+        (segments_gdf['length'] > 0) &  # Changed from 10 to 0
+        (segments_gdf['vehicle'] != 'Unknown')
+    ].copy()
+
+    # Split lines into smaller segments
+    print("Splitting lines into segments...")
+    split_segments = []
+    for idx, row in tqdm(filtered_gdf.iterrows(), total=len(filtered_gdf)):
+        # Split each line into 10-meter segments (changed from 50m)
+        segments = split_linestring(row.geometry, 10)
+        for segment in segments:
+            new_row = row.copy()
+            new_row.geometry = segment
+            new_row['length'] = segment.length
+            new_row['direction'] = calculate_direction(segment)
+            split_segments.append(new_row)
+    
+    split_gdf = gpd.GeoDataFrame(split_segments, crs=filtered_gdf.crs)
+    print(f"Created {len(split_gdf)} segments from {len(filtered_gdf)} original lines")
+
+    # Process each vehicle type
+    for vehicle, df in split_gdf.groupby('vehicle'):
+        print(f"\nProcessing {vehicle} segments...")
+        result_gdf = process_vehicle_segments(df)
+        
+        output_file = os.path.join(output_dir, f'aggregated_segments_{vehicle}.shp')
+        result_gdf.to_file(output_file)
+        print(f"Saved {len(result_gdf)} segments for {vehicle}")
+
+if __name__ == "__main__":
+    main()
 
 print("Aggregated segments for all vehicle types saved successfully.")

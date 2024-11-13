@@ -58,7 +58,7 @@ else:
     
     segments_gdf = gpd.GeoDataFrame(segments_df, geometry='geometry', crs="EPSG:2180")
     
-    output_path = "C:/Users/Asus/OneDrive/Pulpit/Rozne/QGIS/TransitLineSpeeds/_schedule_data/Gdynia_2024_03_20/individual_segments.shp"
+    output_path = "C:/Users/Asus/OneDrive/Pulpit/Rozne/QGIS/TransitLineSpeeds/_schedule_data/Warszawa_2024_11_10/individual_segments.shp"
     segments_gdf.to_file(output_path)
     
     print("Individual segments shapefile saved successfully.")
